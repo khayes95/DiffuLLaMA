@@ -48,6 +48,12 @@ def transition(x_0, sigma, maskable_mask, mask_token_id):
 def create_dataloader(
     batch_size: int, block_size: int, data_dir: Path, accelerator, shuffle: bool = True, seed: int = 4756, split="train"
 ) -> DataLoader:
+    print(f"DEBUG: Creating dataloader with:")
+    print(f"  data_dir: {data_dir}")
+    print(f"  accelerator.num_processes: {accelerator.num_processes}")  
+    print(f"  accelerator.process_index: {accelerator.process_index}")
+    print(f"  batch_size: {batch_size}")
+    print(f"  block_size: {block_size}")
     datasets = []
     data_config = train_data_config if split == "train" else val_data_config
     for prefix, _ in data_config:
@@ -266,14 +272,25 @@ def main(args):
             break
 
     accelerator.print(f"Training Finished")
-    accelerator.end_training()
+    
 
     if args.output_dir is not None:
         accelerator.print(f"Saving model to {args.output_dir}")
+        try:
+            accelerator.wait_for_everyone()
+        except Exception:
+            pass
+        try:
+            state_dict = accelerator.get_state_dict(model)
+        except Exception:
+            state_dict = accelerator.unwrap_model(model).state_dict()
+        except Exception:
+            pass  # Skip if distributed not initialized
 
-        accelerator.wait_for_everyone()
-
-        state_dict = accelerator.get_state_dict(model)
+        if accelerator.num_processes > 1:
+            state_dict = accelerator.get_state_dict(model)
+        else:
+            state_dict = accelerator.unwrap_model(model).state_dict()
 
         accelerator.unwrap_model(model).save_pretrained(
             f"{args.output_dir}",
@@ -283,7 +300,7 @@ def main(args):
         )
 
         accelerator.print(f"Saving Finished")
-
+    accelerator.end_training()
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
